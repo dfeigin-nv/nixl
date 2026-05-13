@@ -40,6 +40,8 @@ awsS3CrtClient::awsS3CrtClient(nixl_b_params_t *custom_params,
         config.multipartUploadThreshold = crt_min_limit;
     }
 
+    config.throughputTargetGbps = getCrtThroughputGbps(custom_params);
+
     auto credentials_opt = nixl_s3_utils::createAWSCredentials(custom_params);
     bool use_virtual_addressing = nixl_s3_utils::getUseVirtualAddressing(custom_params);
     config.useVirtualAddressing = use_virtual_addressing;
