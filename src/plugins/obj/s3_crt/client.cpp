@@ -42,6 +42,21 @@ awsS3CrtClient::awsS3CrtClient(nixl_b_params_t *custom_params,
 
     config.throughputTargetGbps = getCrtThroughputGbps(custom_params);
 
+    // Optional multi-NIC binding. When networkInterfaceNames is set (e.g.
+    // "ens5,ens6,ens7,ens8" on a p4d.24xlarge with 4x 100 Gbps EFA), the CRT
+    // SDK distributes connections across the listed interfaces, lifting
+    // single-NIC saturation as a throughput ceiling. Empty leaves OS routing.
+    auto nic_names = getCrtNetworkInterfaceNames(custom_params);
+    if (!nic_names.empty()) {
+        config.networkInterfaceNames.clear();
+        config.networkInterfaceNames.reserve(nic_names.size());
+        for (const auto &name : nic_names) {
+            config.networkInterfaceNames.emplace_back(name.c_str());
+        }
+        NIXL_INFO << "CRT bound to " << nic_names.size()
+                  << " network interface(s) for multi-NIC throughput";
+    }
+
     auto credentials_opt = nixl_s3_utils::createAWSCredentials(custom_params);
     bool use_virtual_addressing = nixl_s3_utils::getUseVirtualAddressing(custom_params);
     config.useVirtualAddressing = use_virtual_addressing;

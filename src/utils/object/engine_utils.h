@@ -9,7 +9,10 @@
 #include "common/nixl_log.h"
 #include "nixl_types.h"
 #include <algorithm>
+#include <cctype>
+#include <string>
 #include <thread>
+#include <vector>
 
 inline std::size_t
 getNumThreads(nixl_b_params_t *custom_params) {
@@ -59,6 +62,47 @@ getCrtThroughputGbps(nixl_b_params_t *custom_params) {
         }
     }
     return kDefault;
+}
+
+// Network interfaces the AWS S3 CRT client should bind connections to. When
+// non-empty, the CRT SDK distributes connections across the listed interfaces,
+// enabling multi-NIC aggregate throughput (e.g. p4d.24xlarge: 4x 100 Gbps EFA
+// -> 400 Gbps aggregate). Empty default leaves the field unset and the SDK
+// falls back to OS routing (single-NIC).
+//
+// Format: comma-separated interface names, e.g. "ens5,ens6,ens7,ens8".
+// Whitespace around each name is trimmed; empty entries are ignored.
+//
+// NOTE: maps to AWS C++ SDK's S3CrtClientConfiguration::networkInterfaceNames
+// (Aws::Vector<Aws::String>). The SDK marks this field
+// "EXPERIMENTAL AND UNSTABLE"; the underlying aws-c-s3 support
+// (network_interface_names_array) has been stable since 0.4.x.
+inline std::vector<std::string>
+getCrtNetworkInterfaceNames(nixl_b_params_t *custom_params) {
+    std::vector<std::string> result;
+    if (!custom_params) return result;
+
+    auto it = custom_params->find("networkInterfaceNames");
+    if (it == custom_params->end() || it->second.empty()) return result;
+
+    const std::string &list = it->second;
+    size_t start = 0;
+    while (start < list.size()) {
+        size_t comma = list.find(',', start);
+        size_t end = (comma == std::string::npos) ? list.size() : comma;
+        std::string name = list.substr(start, end - start);
+        // Trim leading/trailing whitespace.
+        while (!name.empty() &&
+               std::isspace(static_cast<unsigned char>(name.front())))
+            name.erase(name.begin());
+        while (!name.empty() &&
+               std::isspace(static_cast<unsigned char>(name.back())))
+            name.pop_back();
+        if (!name.empty()) result.push_back(std::move(name));
+        if (comma == std::string::npos) break;
+        start = comma + 1;
+    }
+    return result;
 }
 
 inline bool
