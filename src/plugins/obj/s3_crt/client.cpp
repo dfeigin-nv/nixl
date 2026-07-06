@@ -15,6 +15,7 @@
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
 #include <absl/strings/str_format.h>
 #include <iostream>
+#include <cstdio>
 #include "common/nixl_log.h"
 
 awsS3CrtClient::awsS3CrtClient(nixl_b_params_t *custom_params,
@@ -33,14 +34,26 @@ awsS3CrtClient::awsS3CrtClient(nixl_b_params_t *custom_params,
     // If crtMinLimit < 5 MiB the CRT SDK clamps partSize to 5 MiB internally
     // (with a warning log) while keeping multipartUploadThreshold at the user
     // value, so MPU still activates at crtMinLimit — but the effective part
-    // size will be 5 MiB regardless.
+    // size will be 5 MiB regardless. An explicit crtPartSize override (env
+    // CRT_PART_SIZE on the streamer side) lets a caller hold crtMinLimit at 1
+    // for "CRT handles every object" routing while still selecting a larger
+    // partSize (e.g. 16777216 for a 16 MiB part = 1 part per 16 MB chunk and
+    // no per-part HTTP setup overhead).
     const size_t crt_min_limit = getCrtMinLimit(custom_params);
+    const size_t crt_part_size_override = getCrtPartSize(custom_params);
     if (crt_min_limit > 0) {
-        config.partSize = crt_min_limit;
-        config.multipartUploadThreshold = crt_min_limit;
+        const size_t effective_part_size =
+            crt_part_size_override > 0 ? crt_part_size_override : crt_min_limit;
+        config.partSize = effective_part_size;
+        config.multipartUploadThreshold = effective_part_size;
     }
 
     config.throughputTargetGbps = getCrtThroughputGbps(custom_params);
+    std::fprintf(stderr,
+                 "[nixl s3_crt] throughputTargetGbps=%.1f partSize=%lu multipartUploadThreshold=%lu\n",
+                 config.throughputTargetGbps,
+                 (unsigned long)config.partSize,
+                 (unsigned long)config.multipartUploadThreshold);
 
     // Optional multi-NIC binding. When networkInterfaceNames is set (e.g.
     // "ens5,ens6,ens7,ens8" on a p4d.24xlarge with 4x 100 Gbps EFA), the CRT

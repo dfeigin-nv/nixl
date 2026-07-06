@@ -64,6 +64,26 @@ getCrtThroughputGbps(nixl_b_params_t *custom_params) {
     return kDefault;
 }
 
+// Optional explicit S3 CRT partSize. When set (positive), overrides the
+// previous behavior of tying partSize to crtMinLimit. Lets a caller select
+// crtMinLimit purely for engine routing (>0 selects S3CrtObjEngineImpl) while
+// independently choosing the multipart part size (e.g. 16777216 = 16 MiB so a
+// 16 MB chunk becomes a single multipart GET part). Unit: bytes.
+inline size_t
+getCrtPartSize(nixl_b_params_t *custom_params) {
+    if (!custom_params) return 0;
+    auto it = custom_params->find("crtPartSize");
+    if (it == custom_params->end() || it->second.empty()) return 0;
+    try {
+        return std::stoull(it->second);
+    }
+    catch (const std::exception &e) {
+        NIXL_WARN << "Invalid crtPartSize value: " << it->second
+                  << "; falling back to crtMinLimit-derived partSize";
+        return 0;
+    }
+}
+
 // Network interfaces the AWS S3 CRT client should bind connections to. When
 // non-empty, the CRT SDK distributes connections across the listed interfaces,
 // enabling multi-NIC aggregate throughput (e.g. p4d.24xlarge: 4x 100 Gbps EFA
